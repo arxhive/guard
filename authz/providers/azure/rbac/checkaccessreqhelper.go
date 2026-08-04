@@ -49,8 +49,11 @@ const (
 	NonAADUserNotAllowedVerdict = "Access denied by Azure RBAC for non AAD users. Configure --azure.skip-authz-for-non-aad-users to enable access. If you are an AAD user, please set Extra:oid parameter for impersonated user in the kubeconfig."
 	CheckAccessErrorVerdict     = "Access denied due to Azure RBAC check failure. Please retry later."
 	PodsResource                = "pods"
+	ServicesResource            = "services"
+	NodesResource               = "nodes"
 	CSRResource                 = "certificatesigningrequests"
 	CustomResources             = "customresources"
+	ProxySubresource            = "proxy"
 	ReadVerb                    = "read"
 	WriteVerb                   = "write"
 	DeleteVerb                  = "delete"
@@ -262,9 +265,26 @@ func getActionName(verb string) string {
 // with this subresource to gate kubelet CSR auto-approval. Collapsing it into
 // certificatesigningrequests/write allows any principal with CSR-write to get a
 // signed kubelet certificate (MSRC 119438).
+//
+// pods/proxy, services/proxy, nodes/proxy: a GET on a */proxy subresource opens
+// an HTTP tunnel through the API server to arbitrary pod/service/node ports, so
+// it is not a read-only capability (see upstream RBAC good practices, which flag
+// nodes/proxy as "not read-only"). Without a distinct gate, "get <res>/proxy"
+// collapses onto <res>/read, so a principal holding only the built-in "Azure
+// Kubernetes Service RBAC Reader" role (which grants pods/read and services/read
+// but no /proxy DataAction) silently obtains cluster-wide HTTP-GET tunneling to
+// every pod, bypassing NetworkPolicy (MSRC 128222). Built-in Writer/Admin roles
+// grant pods/*, services/*, or managedClusters/* wildcards and are unaffected.
 var securitySensitiveSubresources = map[string]map[string]struct{}{
 	PodsResource: {
-		"exec": {},
+		"exec":           {},
+		ProxySubresource: {},
+	},
+	ServicesResource: {
+		ProxySubresource: {},
+	},
+	NodesResource: {
+		ProxySubresource: {},
 	},
 	CSRResource: {
 		"nodeclient": {},
